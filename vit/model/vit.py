@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from einops import rearrange
+from einops import rearrange, repeat
 
 
 class Attention(nn.Module):
@@ -13,6 +13,8 @@ class Attention(nn.Module):
 
         self.qkv = nn.Linear(embed_dim, embed_dim * 3)
         self.fc = nn.Linear(embed_dim, embed_dim)
+        self.dropout = nn.Dropout(dropout)
+        self._init_weights()
 
     def _init_weights(self):
         nn.init.xavier_uniform_(self.qkv.weight)
@@ -20,7 +22,7 @@ class Attention(nn.Module):
 
     def forward(self, x):
         qkv = self.qkv(x).chunk(3, dim=-1)
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), qkv)
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.num_heads), qkv)
         
         attn = torch.einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
         attn = torch.softmax(attn, dim=-1)
@@ -30,12 +32,13 @@ class Attention(nn.Module):
         return attn
     
 class FeedForward(nn.Module):
-    def __init__(self, dim, hidden_dim):
+    def __init__(self, dim, hidden_dim, dropout=0.0):
         super().__init__()
         self.net = nn.Sequential(
             nn.LayerNorm(dim),
             nn.Linear(dim, hidden_dim),
             nn.GELU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden_dim, dim),
         )
     def forward(self, x):
@@ -43,14 +46,14 @@ class FeedForward(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, dim, depth, heads, mlp_dim):
+    def __init__(self, dim, depth, heads, mlp_dim, dropout=0.0):
         super().__init__()
         self.norm = nn.LayerNorm(dim)
         self.layers = nn.ModuleList([])
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
                 Attention(dim, heads),
-                FeedForward(dim, mlp_dim)
+                FeedForward(dim, mlp_dim, dropout)
             ]))
     def forward(self, x):
         for attn, ff in self.layers:
@@ -72,15 +75,17 @@ class VisionTransformer(nn.Module):
             nn.LayerNorm(dim),
             nn.Linear(dim, num_classes)
         )
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, img):
         p = self.patch_size
         x = rearrange(img, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = p, p2 = p)
         x = self.patch_to_embedding(x)
         b, n, _ = x.shape
-        cls_tokens = rearrange(self.cls_token, '() n d -> b n d', b = b)
+        cls_tokens = repeat(self.cls_token, '() 1 d -> b 1 d', b = b)
         x = torch.cat((cls_tokens, x), dim=1)
         x += self.pos_embedding[:, :(n + 1)]
+        x = self.dropout(x)
         x = self.transformer(x)
         cls = x[:, 0] ## only take the cls token
         return self.mlp_head(cls)
