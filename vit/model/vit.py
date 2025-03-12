@@ -27,7 +27,7 @@ class Attention(nn.Module):
         attn = torch.einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
         attn = torch.softmax(attn, dim=-1)
         attn = torch.einsum('b h i j, b h j d -> b h i d', attn, v)
-        attn = torch.cat(attn, dim=-1)
+        attn = rearrange(attn, 'b h n d -> b n (h d)')
         attn = self.fc(attn)
         return attn
     
