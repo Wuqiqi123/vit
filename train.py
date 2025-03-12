@@ -85,15 +85,30 @@ def train_model(**kwargs):
 
 # image_size, patch_size, num_classes, dim, depth, heads, mlp_dim, channels=3, dropout=0.
 
+# model, results = train_model(
+#     model_kwargs={
+#         "image_size": 32,
+#         "patch_size": 4,
+#         "num_classes": 10,
+#         "dim": 256,
+#         "depth": 6,
+#         "heads": 8,
+#         "mlp_dim": 512,
+#     },
+#     lr=3e-4,
+# )
+
 model, results = train_model(
     model_kwargs={
-        "image_size": 32,
+        "embed_dim": 256,
+        "hidden_dim": 512,
+        "num_heads": 8,
+        "num_layers": 6,
         "patch_size": 4,
+        "num_channels": 3,
+        "num_patches": 64,
         "num_classes": 10,
-        "dim": 256,
-        "depth": 6,
-        "heads": 8,
-        "mlp_dim": 512,
+        "dropout": 0.2,
     },
     lr=3e-4,
 )
