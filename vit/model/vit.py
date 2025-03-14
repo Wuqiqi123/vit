@@ -19,7 +19,7 @@ class Attention(nn.Module):
         nn.init.xavier_uniform_(self.fc.weight)
 
     def forward(self, x, mask=None):
-        qkv = self.to_qkv(x).chunk(3, dim = -1)
+        qkv = self.qkv_linear(x).chunk(3, dim = -1)
         q, k, v = map(lambda t: rearrange(t, 'b l (h k) -> b h l k', h = self.n_heads), qkv)
 
         attn = torch.einsum('b h l k, b h t k -> b h l t', q, k) / q.shape[-1]**0.5
@@ -62,13 +62,13 @@ class AttentionBlock(nn.Module):
         """
         super().__init__()
         self.layer_norm_1 = nn.LayerNorm(embed_dim)
-        self.attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout)
+        self.attn = Attention(embed_dim, num_heads, dropout=dropout)
         self.layer_norm_2 = nn.LayerNorm(embed_dim)
         self.feed_forword = FeedForward(embed_dim, hidden_dim, dropout=dropout)
 
     def forward(self, x):
         inp_x = self.layer_norm_1(x)
-        x = x + self.attn(inp_x, inp_x, inp_x)[0]
+        x = x + self.attn(inp_x)[0]
         x = x + self.feed_forword(self.layer_norm_2(x))
         return x
 
@@ -97,7 +97,6 @@ class VisionTransformer(nn.Module):
         x = torch.cat((cls_tokens, x), dim=1)
         x += self.pos_embedding[:, :(n + 1)]
         x = self.dropout(x)
-        x = x.transpose(0, 1)
         x = self.transformer(x)
-        cls = x[0]
+        cls = x[:, 0]
         return self.mlp_head(cls)
