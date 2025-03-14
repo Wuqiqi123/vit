@@ -2,7 +2,44 @@ import torch
 import torch.nn as nn
 from einops import rearrange, repeat
 import math
-    
+
+
+class Attention(nn.Module):
+    def __init__(self, d_model, n_heads, dropout=0.1):
+        super().__init__()
+        self.n_heads = n_heads
+        self.d_model = d_model
+        self.d_k = d_model // n_heads
+        self.dropout = nn.Dropout(dropout)
+
+        self.q_linear = nn.Linear(d_model, d_model)
+        self.v_linear = nn.Linear(d_model, d_model)
+        self.k_linear = nn.Linear(d_model, d_model)
+
+        for linear in [self.q_linear, self.v_linear, self.k_linear]:
+            nn.init.xavier_uniform_(linear.weight)
+
+        self.fc = nn.Linear(d_model, d_model)
+        nn.init.xavier_uniform_(self.fc.weight)
+
+    def forward(self, q, k, v, mask=None):
+        q = rearrange(q, 'b l (head k) -> head b l k', head=self.n_heads)
+        k = rearrange(k, 'b l (head k) -> head b l k', head=self.n_heads)
+        v = rearrange(v, 'b l (head v) -> head b l v', head=self.n_heads)
+
+        attn = torch.einsum('h b l k, h b t k -> h b l t', q, k) / q.shape[-1]**0.5
+
+        if mask is not None:
+            attn = attn.masked_fill(mask[None], -float('inf'))
+        
+        attn = torch.nn.functional.softmax(attn, dim=-1)
+        attn = self.dropout(attn)
+
+        output = torch.einsum('h b l t, h b t v -> h b l v', [attn, v])
+        output = rearrange(output, 'h b l v -> b l (h v)')
+        output = self.dropout(self.fc(output))
+        return output, attn
+
 class FeedForward(nn.Module):
     def __init__(self, dim, hidden_dim, dropout=0.0):
         super().__init__()
