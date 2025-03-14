@@ -12,22 +12,17 @@ class Attention(nn.Module):
         self.d_k = d_model // n_heads
         self.dropout = nn.Dropout(dropout)
 
-        self.q_linear = nn.Linear(d_model, d_model)
-        self.v_linear = nn.Linear(d_model, d_model)
-        self.k_linear = nn.Linear(d_model, d_model)
-
-        for linear in [self.q_linear, self.v_linear, self.k_linear]:
-            nn.init.xavier_uniform_(linear.weight)
+        self.qkv_linear = nn.Linear(d_model, d_model * 3)
+        nn.init.xavier_uniform_(self.qkv_linear.weight)
 
         self.fc = nn.Linear(d_model, d_model)
         nn.init.xavier_uniform_(self.fc.weight)
 
-    def forward(self, q, k, v, mask=None):
-        q = rearrange(q, 'b l (head k) -> head b l k', head=self.n_heads)
-        k = rearrange(k, 'b l (head k) -> head b l k', head=self.n_heads)
-        v = rearrange(v, 'b l (head v) -> head b l v', head=self.n_heads)
+    def forward(self, x, mask=None):
+        qkv = self.to_qkv(x).chunk(3, dim = -1)
+        q, k, v = map(lambda t: rearrange(t, 'b l (h k) -> b h l k', h = self.n_heads), qkv)
 
-        attn = torch.einsum('h b l k, h b t k -> h b l t', q, k) / q.shape[-1]**0.5
+        attn = torch.einsum('b h l k, b h t k -> b h l t', q, k) / q.shape[-1]**0.5
 
         if mask is not None:
             attn = attn.masked_fill(mask[None], -float('inf'))
@@ -35,8 +30,8 @@ class Attention(nn.Module):
         attn = torch.nn.functional.softmax(attn, dim=-1)
         attn = self.dropout(attn)
 
-        output = torch.einsum('h b l t, h b t v -> h b l v', [attn, v])
-        output = rearrange(output, 'h b l v -> b l (h v)')
+        output = torch.einsum('b h l t, b h t v -> b h l v', [attn, v])
+        output = rearrange(output, 'b h l v -> b l (h v)')
         output = self.dropout(self.fc(output))
         return output, attn
 
